@@ -16,35 +16,38 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-
 plugins {
-    id("net.minecrell.plugin-yml.bukkit") version "0.3.0"
+    id("net.minecrell.plugin-yml.bukkit") version "0.5.0"
 }
 
 repositories {
     maven("https://oss.sonatype.org/content/repositories/snapshots/")
     maven("https://repo.minecrell.net/snapshots/")
-    maven("https://repo.papermc.io/repository/maven-snapshots/")
-    maven("http://repo.dmulloy2.net/nexus/repository/releases/")
-    maven("http://repo.dmulloy2.net/nexus/repository/snapshots/")
+    maven("https://repo.papermc.io/repo/repository/maven-snapshots/")
+    maven("https://repo.dmulloy2.net/nexus/repository/releases/")
+    maven("https://repo.dmulloy2.net/nexus/repository/snapshots/")
     maven("https://ci.frostcast.net/plugin/repository/everything/")
     maven("https://repo.minebench.de/")
     maven("https://jitpack.io/")
+    maven("https://repo.extendedclip.com/content/repositories/placeholderapi/");
 }
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.17-R0.1-SNAPSHOT")
     compileOnly("com.comphenix.protocol:ProtocolLib-API:4.4.0") { isTransitive = false }
 
-    compileOnly("me.confuser.banmanager:BanManagerCommon:7.2.2") { isTransitive = false }
-    compileOnly("com.github.seancfoley:ipaddress:5.2.1") /* For BanManager */
+    compileOnly("me.confuser.banmanager:BanManagerCommon:7.5.0") { isTransitive = false }
+    compileOnly("com.github.seancfoley:ipaddress:5.3.3") /* For BanManager */
     compileOnly("com.github.netherfoam:MaxBans:156239e1f1") { isTransitive = false }
 
-    compile("org.mcstats.bukkit:metrics-lite:R8-SNAPSHOT") { isTransitive = false }
     compile("de.themoep:minedown:1.7.1-SNAPSHOT")
     compile("de.themoep:minedown-adventure:1.7.2-SNAPSHOT")
 
+    compileOnly("me.clip:placeholderapi:2.10.10") { isTransitive = false }
+}
+
+java {
+    disableAutoTargetJvm()
 }
 
 bukkit {
@@ -52,19 +55,23 @@ bukkit {
     main = "net.minecrell.serverlistplus.bukkit.BukkitPlugin"
 
     name = rootProject.name
-    softDepend = listOf("ProtocolLib", "AdvancedBan", "BanManager", "MaxBans")
+    softDepend = listOf("ProtocolLib", "AdvancedBan", "BanManager", "MaxBans", "PlaceholderAPI")
 
     commands {
-        "serverlistplus" {
+        register("serverlistplus") {
             description = "Configure ServerListPlus"
-            // I have no idea why I added so many weird aliases back then... "slp" is the only relevant one
-            aliases = listOf("slp", "serverlist+", "serverlist", "sl+", "s++", "serverping+", "serverping", "spp", "slus")
+            aliases = listOf("slp")
+            permission = "serverlistplus.command"
         }
     }
 
     permissions {
-        "serverlistplus.admin" {
-            description = "Allows you to access the ServerListPlus administration commands"
+        register("serverlistplus.command") {
+            description = "Allows read-only access to ServerListPlus commands"
+        }
+        register("serverlistplus.admin") {
+            description = "Allows to access the ServerListPlus administration commands"
+            children = listOf("serverlistplus.command")
         }
     }
 }
@@ -72,29 +79,10 @@ bukkit {
 tasks {
     withType<ShadowJar> {
         dependencies {
-            include(dependency("org.mcstats.bukkit:metrics-lite"))
             include(dependency("de.themoep:minedown"))
             include(dependency("de.themoep:minedown-adventure"))
         }
 
-        relocate("org.mcstats", "net.minecrell.serverlistplus.bukkit.mcstats")
         relocate("de.themoep.minedown", "net.minecrell.serverlistplus.bukkit.minedown")
-    }
-
-    // Remapped artifacts for compatibility with 1.7.x and 1.8
-    fun createShadowTask(name: String, configure: ShadowJar.() -> Unit) {
-        create<ShadowJar>("shadow$name") {
-            classifier = "${project.name}-$name"
-            configurations = listOf(project.configurations["runtimeClasspath"])
-            from(java.sourceSets["main"].output)
-            configure()
-        }
-    }
-    createShadowTask("1.7.X") {
-        relocate("com.google.common", "net.minecraft.util.com.google.common")
-        relocate("com.google.gson", "net.minecraft.util.com.google.gson")
-    }
-    createShadowTask("1.8") {
-        relocate("com.google.gson", "org.bukkit.craftbukkit.libs.com.google.gson")
     }
 }

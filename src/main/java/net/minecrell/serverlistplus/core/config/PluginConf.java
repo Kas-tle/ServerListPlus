@@ -28,13 +28,11 @@ import net.minecrell.serverlistplus.core.util.TimeUnitValue;
 import java.util.concurrent.TimeUnit;
 
 @Description({
-        "Stats: Enable/disable sending plugin statistics.",
         "PlayerTracking: Enable/disable tracking of player names to their IP-Addresses.",
         "  - Persistence can be disabled with the toggle in the Storage section.",
-        "Samples: Toggle using multiple player infos for the player hover message.",
-        "    May prevent the annoying ... and x more ... message for bigger servers",
-        "    DynamicPlayers is special and aligns the number with the number of",
-        "    random players used in placeholders.",
+        "StripRGBIfOutdated: Strip RGB color codes for outdated clients.",
+        "  - With this enabled you can put an old color code (e.g. &c) before RGB codes/gradients",
+        "    and they will be shown for outdated clients.",
         "Unknown: Placeholder replacement if the real value is unknown.",
         "Favicon: Options for the creation / downloading of favicons:",
         " - RecursiveFolderSearch: Also search for favicons in sub directories.",
@@ -43,9 +41,8 @@ import java.util.concurrent.TimeUnit;
         "     NONE (keep them as is, will probably fail), SCALE (scale them to the correct size)"
 })
 public class PluginConf {
-    public boolean Stats = true;
     public PlayerTrackingConf PlayerTracking = new PlayerTrackingConf();
-    public SamplesConf Samples = new SamplesConf();
+    public boolean StripRGBIfOutdated = true;
     public UnknownConf Unknown = new UnknownConf();
     public FaviconConf Favicon = new FaviconConf();
 
@@ -63,12 +60,6 @@ public class PluginConf {
             public boolean Enabled = true;
         }
     }
-
-    public static class SamplesConf {
-        public boolean Multiple = true;
-        public boolean DynamicPlayers = false;
-    }
-
     public static class UnknownConf {
         public String PlayerName = "player";
         public String PlayerCount = "???";

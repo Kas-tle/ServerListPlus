@@ -16,32 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.minecrell.serverlistplus.core.util;
+package net.minecrell.serverlistplus.bukkit.config;
 
-import com.google.common.collect.ForwardingIterator;
-
-import java.util.Iterator;
-
-public class CountingIterator<T> extends ForwardingIterator<T> {
-    private final Iterator<T> handle;
-    private int count = 0;
-
-    public CountingIterator(Iterator<T> handle) {
-        this.handle = handle;
-    }
-
-    public int getCount() {
-        return count;
-    }
-
-    @Override
-    public T next() {
-        count++;
-        return super.next();
-    }
-
-    @Override
-    protected Iterator<T> delegate() {
-        return handle;
-    }
+public enum ProtocolLibUsage {
+    DISABLE,
+    AUTO,
+    ENABLE
 }

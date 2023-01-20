@@ -18,16 +18,13 @@
 
 package net.minecrell.serverlistplus.bungee;
 
-import static net.minecrell.serverlistplus.core.logging.Logger.DEBUG;
-import static net.minecrell.serverlistplus.core.logging.Logger.ERROR;
-import static net.minecrell.serverlistplus.core.logging.Logger.INFO;
+import static net.minecrell.serverlistplus.core.logging.JavaServerListPlusLogger.DEBUG;
+import static net.minecrell.serverlistplus.core.logging.JavaServerListPlusLogger.ERROR;
+import static net.minecrell.serverlistplus.core.logging.JavaServerListPlusLogger.INFO;
 
 import com.google.common.base.Optional;
 import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheBuilderSpec;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import de.themoep.minedown.MineDown;
 import de.themoep.minedown.Util;
 import net.md_5.bungee.api.AbstractReconnectHandler;
@@ -40,7 +37,6 @@ import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.config.ServerInfo;
 import net.md_5.bungee.api.connection.PendingConnection;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
-import net.md_5.bungee.api.event.AsyncEvent;
 import net.md_5.bungee.api.event.LoginEvent;
 import net.md_5.bungee.api.event.PlayerDisconnectEvent;
 import net.md_5.bungee.api.event.ProxyPingEvent;
@@ -49,21 +45,20 @@ import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.TabExecutor;
 import net.md_5.bungee.event.EventHandler;
 import net.md_5.bungee.protocol.ProtocolConstants;
-import net.minecrell.mcstats.BungeeStatsLite;
 import net.minecrell.serverlistplus.bungee.integration.BungeeBanBanProvider;
 import net.minecrell.serverlistplus.core.ServerListPlusCore;
 import net.minecrell.serverlistplus.core.ServerListPlusException;
 import net.minecrell.serverlistplus.core.config.PluginConf;
 import net.minecrell.serverlistplus.core.config.storage.InstanceStorage;
-import net.minecrell.serverlistplus.core.favicon.FaviconHelper;
+import net.minecrell.serverlistplus.core.favicon.FaviconCache;
 import net.minecrell.serverlistplus.core.favicon.FaviconSource;
 import net.minecrell.serverlistplus.core.logging.JavaServerListPlusLogger;
 import net.minecrell.serverlistplus.core.logging.ServerListPlusLogger;
-import net.minecrell.serverlistplus.core.player.ban.NoBanProvider;
 import net.minecrell.serverlistplus.core.player.ban.integration.AdvancedBanBanProvider;
 import net.minecrell.serverlistplus.core.plugin.ScheduledTask;
 import net.minecrell.serverlistplus.core.plugin.ServerListPlusPlugin;
 import net.minecrell.serverlistplus.core.plugin.ServerType;
+import net.minecrell.serverlistplus.core.replacement.rgb.RGBFormat;
 import net.minecrell.serverlistplus.core.status.ResponseFetcher;
 import net.minecrell.serverlistplus.core.status.StatusManager;
 import net.minecrell.serverlistplus.core.status.StatusRequest;
@@ -83,22 +78,10 @@ import java.util.concurrent.TimeUnit;
 
 public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlugin {
     private ServerListPlusCore core;
+    private RGBFormat rgbFormat = RGBFormat.UNSUPPORTED;
     private Listener connectionListener, pingListener;
 
-    private BungeeStatsLite stats = new BungeeStatsLite(this);
-
-    // Favicon cache
-    private final CacheLoader<FaviconSource, Optional<Favicon>> faviconLoader =
-            new CacheLoader<FaviconSource, Optional<Favicon>>() {
-        @Override
-        public Optional<Favicon> load(FaviconSource source) throws Exception {
-            // Try loading the favicon
-            BufferedImage image = FaviconHelper.loadSafely(core, source);
-            if (image == null) return Optional.absent(); // Favicon loading failed
-            else return Optional.of(Favicon.create(image)); // Success!
-        }
-    };
-    private LoadingCache<FaviconSource, Optional<Favicon>> faviconCache;
+    private FaviconCache<Favicon> faviconCache;
 
     private boolean isPluginLoaded(String pluginName) {
         return getProxy().getPluginManager().getPlugin(pluginName) != null;
@@ -106,8 +89,14 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
 
     @Override
     public void onEnable() {
+        // Check if RGB color codes are supproted
+        if (colorize("&x&a&b&c&d&e&f").charAt(0) != '&') {
+            this.rgbFormat = RGBFormat.WEIRD_BUNGEE;
+        }
+
         try { // Load the core first
-            this.core = new ServerListPlusCore(this);
+            ServerListPlusLogger clogger = new JavaServerListPlusLogger(getLogger(), ServerListPlusLogger.CORE_PREFIX);
+            this.core = new ServerListPlusCore(this, clogger);
             getLogger().log(INFO, "Successfully loaded!");
         } catch (ServerListPlusException e) {
             getLogger().log(INFO, "Please fix the error before restarting the server!"); return;
@@ -119,12 +108,14 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
         // Register commands
         getProxy().getPluginManager().registerCommand(this, new ServerListPlusCommand());
 
-        if (isPluginLoaded("AdvancedBan")) {
-            core.setBanProvider(new AdvancedBanBanProvider());
-        } else if (isPluginLoaded("BungeeBan")) {
-            core.setBanProvider(new BungeeBanBanProvider());
-        } else {
-            core.setBanProvider(new NoBanProvider());
+        try {
+            if (isPluginLoaded("AdvancedBan")) {
+                core.setBanProvider(new AdvancedBanBanProvider());
+            } else if (isPluginLoaded("BungeeBan")) {
+                core.setBanProvider(new BungeeBanBanProvider());
+            }
+        } catch (Throwable e) {
+            getLogger().log(ERROR, "Failed to register ban provider", e);
         }
     }
 
@@ -138,8 +129,7 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
     // Commands
     public final class ServerListPlusCommand extends Command implements TabExecutor {
         private ServerListPlusCommand() {
-            super("serverlistplus", null, "serverlist+", "serverlist", "slp", "sl+", "s++",
-                    "serverping+", "serverping", "spp", "slus");
+            super("serverlistplus", "serverlistplus.command", "slp");
         }
 
         @Override
@@ -216,9 +206,9 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
                     });
 
             // Description
-            String message = response.getDescription();
-            if (message != null) {
-                BaseComponent[] components = new MineDown(message.replace('§', '&')).urlDetection(false).toComponent();
+            String description = response.getDescription();
+            if (description != null) {
+                BaseComponent[] components = new MineDown(description.replace('§', '&')).urlDetection(false).toComponent();
                 if (event.getConnection().getVersion() < ProtocolConstants.MINECRAFT_1_16) {
                     components = Util.rgbColorsToLegacy(components);
                 }
@@ -227,8 +217,8 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
 
             if (version != null) {
                 // Version name
-                message = response.getVersion();
-                if (message != null) version.setName(message);
+                String versionName = response.getVersion();
+                if (versionName != null) version.setName(versionName);
                 // Protocol version
                 Integer protocol = response.getProtocolVersion();
                 if (protocol != null) version.setProtocol(protocol);
@@ -239,45 +229,36 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
                     ping.setPlayers(null);
                 } else {
                     // Online players
-                    Integer count = response.getOnlinePlayers();
-                    if (count != null) players.setOnline(count);
+                    Integer onlinePlayers = response.getOnlinePlayers();
+                    if (onlinePlayers != null) players.setOnline(onlinePlayers);
                     // Max players
-                    count = response.getMaxPlayers();
-                    if (count != null) players.setMax(count);
+                    Integer maxPlayers = response.getMaxPlayers();
+                    if (maxPlayers != null) players.setMax(maxPlayers);
 
                     // Player hover
-                    message = response.getPlayerHover();
-                    if (message != null) {
-                        if (message.isEmpty()) {
+                    String playerHover = response.getPlayerHover();
+                    if (playerHover != null) {
+                        if (playerHover.isEmpty()) {
                             players.setSample(null);
-                        } else if (response.useMultipleSamples()) {
-                            count = response.getDynamicSamples();
-                            List<String> lines = count != null ? Helper.splitLinesCached(message, count) :
-                                    Helper.splitLinesCached(message);
+                        } else {
+                            List<String> lines = Helper.splitLinesToList(playerHover);
 
                             ServerPing.PlayerInfo[] sample = new ServerPing.PlayerInfo[lines.size()];
                             for (int i = 0; i < sample.length; i++)
                                 sample[i] = new ServerPing.PlayerInfo(lines.get(i), UUIDs.EMPTY);
 
                             players.setSample(sample);
-                        } else
-                            players.setSample(new ServerPing.PlayerInfo[]{
-                                    new ServerPing.PlayerInfo(message, UUIDs.EMPTY) });
+                        }
                     }
                 }
             }
 
             // Favicon
             FaviconSource favicon = response.getFavicon();
-            if (favicon != null) {
-                Optional<Favicon> icon;
-                // Check if instanceof AsyncEvent for compatibility with 1.7.10
-                if (event instanceof AsyncEvent) {
-                    icon = faviconCache.getIfPresent(favicon);
-                } else {
-                    icon = faviconCache.getUnchecked(favicon);
-                }
-
+            if (favicon == FaviconSource.NONE) {
+                ping.setFavicon((Favicon) null);
+            } else if (favicon != null) {
+                Optional<Favicon> icon = faviconCache.getIfPresent(favicon);
                 if (icon == null) {
                     // Load favicon asynchronously
                     event.registerIntent(BungeePlugin.this);
@@ -301,7 +282,7 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
 
         @Override
         public void run() {
-            Optional<Favicon> favicon = faviconCache.getUnchecked(this.source);
+            Optional<Favicon> favicon = faviconCache.get(this.source);
             if (favicon.isPresent()) {
                 event.getResponse().setFavicon(favicon.get());
             }
@@ -323,7 +304,7 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
 
     @Override
     public String getServerImplementation() {
-        return getProxy().getVersion() + " (MC: " + getProxy().getGameVersion() + ')';
+        return getProxy().getName() + " " + getProxy().getVersion();
     }
 
     @Override
@@ -361,7 +342,7 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
     }
 
     @Override
-    public LoadingCache<FaviconSource, Optional<Favicon>> getFaviconCache() {
+    public FaviconCache<?> getFaviconCache() {
         return faviconCache;
     }
 
@@ -381,8 +362,8 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
     }
 
     @Override
-    public ServerListPlusLogger createLogger(ServerListPlusCore core) {
-        return new JavaServerListPlusLogger(core, getLogger());
+    public RGBFormat getRGBFormat() {
+        return rgbFormat;
     }
 
     @Override
@@ -396,14 +377,16 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
     }
 
     @Override
-    public void reloadFaviconCache(CacheBuilderSpec spec) {
-        if (spec != null) {
-            this.faviconCache = CacheBuilder.from(spec).build(faviconLoader);
+    public void createFaviconCache(CacheBuilderSpec spec) {
+        if (faviconCache == null) {
+            faviconCache = new FaviconCache<Favicon>(this, spec) {
+                @Override
+                protected Favicon createFavicon(BufferedImage image) throws Exception {
+                    return Favicon.create(image);
+                }
+            };
         } else {
-            // Delete favicon cache
-            faviconCache.invalidateAll();
-            faviconCache.cleanUp();
-            this.faviconCache = null;
+            faviconCache.reload(spec);
         }
     }
 
@@ -419,13 +402,6 @@ public class BungeePlugin extends BungeePluginBase implements ServerListPlusPlug
             unregisterListener(connectionListener);
             this.connectionListener = null;
             getLogger().log(DEBUG, "Unregistered proxy player tracking listener.");
-        }
-
-        // Plugin statistics
-        if (confs.get(PluginConf.class).Stats) {
-            this.stats.start();
-        } else {
-            this.stats.stop();
         }
     }
 

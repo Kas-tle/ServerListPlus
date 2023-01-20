@@ -24,10 +24,10 @@ import static com.google.common.base.StandardSystemProperty.JAVA_VM_NAME;
 import static com.google.common.base.StandardSystemProperty.OS_ARCH;
 import static com.google.common.base.StandardSystemProperty.OS_NAME;
 import static com.google.common.base.StandardSystemProperty.OS_VERSION;
-import static net.minecrell.serverlistplus.core.logging.Logger.DEBUG;
-import static net.minecrell.serverlistplus.core.logging.Logger.INFO;
-import static net.minecrell.serverlistplus.core.logging.Logger.REPORT;
-import static net.minecrell.serverlistplus.core.logging.Logger.WARN;
+import static net.minecrell.serverlistplus.core.logging.Logger.Level.DEBUG;
+import static net.minecrell.serverlistplus.core.logging.Logger.Level.INFO;
+import static net.minecrell.serverlistplus.core.logging.Logger.Level.REPORT;
+import static net.minecrell.serverlistplus.core.logging.Logger.Level.WARN;
 
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -41,7 +41,9 @@ import net.minecrell.serverlistplus.core.config.CoreConf;
 import net.minecrell.serverlistplus.core.config.PluginConf;
 import net.minecrell.serverlistplus.core.config.ServerStatusConf;
 import net.minecrell.serverlistplus.core.config.help.Examples;
+import net.minecrell.serverlistplus.core.favicon.FaviconCache;
 import net.minecrell.serverlistplus.core.logging.Logger;
+import net.minecrell.serverlistplus.core.logging.ServerListPlusLogger;
 import net.minecrell.serverlistplus.core.player.IdentificationStorage;
 import net.minecrell.serverlistplus.core.player.JSONIdentificationStorage;
 import net.minecrell.serverlistplus.core.player.PlayerIdentity;
@@ -51,6 +53,7 @@ import net.minecrell.serverlistplus.core.plugin.ServerCommandSender;
 import net.minecrell.serverlistplus.core.plugin.ServerListPlusPlugin;
 import net.minecrell.serverlistplus.core.profile.JSONProfileManager;
 import net.minecrell.serverlistplus.core.profile.ProfileManager;
+import net.minecrell.serverlistplus.core.replacement.ReplacementManager;
 import net.minecrell.serverlistplus.core.status.StatusManager;
 import net.minecrell.serverlistplus.core.status.StatusRequest;
 import net.minecrell.serverlistplus.core.util.ChatFormat;
@@ -83,19 +86,19 @@ public class ServerListPlusCore {
 
     private String faviconCacheConf;
 
-    private @Getter @Setter BanProvider banProvider;
+    private @Getter @Setter BanProvider banProvider = NoBanProvider.INSTANCE;
 
-    public ServerListPlusCore(ServerListPlusPlugin plugin) throws ServerListPlusException {
-        this(plugin, null);
+    public ServerListPlusCore(ServerListPlusPlugin plugin, ServerListPlusLogger logger) throws ServerListPlusException {
+        this(plugin, logger, null);
     }
 
-    public ServerListPlusCore(ServerListPlusPlugin plugin, ProfileManager profileManager) throws ServerListPlusException {
+    public ServerListPlusCore(ServerListPlusPlugin plugin, ServerListPlusLogger logger, ProfileManager profileManager)
+            throws ServerListPlusException {
         instance = this;
 
         this.plugin = Preconditions.checkNotNull(plugin, "plugin");
-        this.logger = plugin.createLogger(this);
+        this.logger = Preconditions.checkNotNull(logger, "logger");
         this.info = CoreDescription.load(this);
-        this.banProvider = new NoBanProvider();
 
         try {
             if (Float.parseFloat(JAVA_CLASS_VERSION.value()) < 52.0) {
@@ -119,12 +122,15 @@ public class ServerListPlusCore {
                 "---"
         ));
 
+        // Register default static replacers
+        ReplacementManager.registerDefault(this);
+
         // Initialize configuration and status manager, but not yet load it
         this.statusManager = new StatusManager(this);
         this.configManager = new ConfigurationManager(this);
 
         // Register the configurations
-        registerConf(ServerStatusConf.class, new ServerStatusConf(), Examples.forServerStatus(), "Status");
+        registerConf(ServerStatusConf.class, new ServerStatusConf(), Examples.forServerStatus(this), "Status");
         registerConf(PluginConf.class, new PluginConf(), Examples.forPlugin(), "Plugin");
         registerConf(CoreConf.class, new CoreConf(), null, "Core");
 
@@ -164,7 +170,7 @@ public class ServerListPlusCore {
                 !faviconCacheConf.equals(conf.Caches.Favicon))) {
             if (plugin.getFaviconCache() != null) {
                 getLogger().log(DEBUG, "Deleting old favicon cache due to configuration changes.");
-                plugin.reloadFaviconCache(null); // Delete the old favicon cache
+                plugin.getFaviconCache().clear(); // Delete the old favicon cache
             }
 
             if (enabled) {
@@ -172,11 +178,11 @@ public class ServerListPlusCore {
 
                 try {
                     this.faviconCacheConf = conf.Caches.Favicon;
-                    plugin.reloadFaviconCache(CacheBuilderSpec.parse(faviconCacheConf));
+                    plugin.createFaviconCache(CacheBuilderSpec.parse(faviconCacheConf));
                 } catch (IllegalArgumentException e) {
                     getLogger().log(e, "Unable to create favicon cache using configuration settings.");
                     this.faviconCacheConf = getDefaultConf(CoreConf.class).Caches.Favicon;
-                    plugin.reloadFaviconCache(CacheBuilderSpec.parse(faviconCacheConf));
+                    plugin.createFaviconCache(CacheBuilderSpec.parse(faviconCacheConf));
                 }
 
                 getLogger().log(DEBUG, "Favicon cache created.");
@@ -226,7 +232,8 @@ public class ServerListPlusCore {
             "favicons", new Function<ServerListPlusCore, Cache<?, ?>>() {
                 @Override
                 public Cache<?, ?> apply(ServerListPlusCore core) {
-                    return core.getPlugin().getFaviconCache();
+                    FaviconCache<?> cache = core.getPlugin().getFaviconCache();
+                    return (cache == null) ? null : cache.getLoadingCache();
                 }
             }, "requests", new Function<ServerListPlusCore, Cache<?, ?>>() {
                 @Override
@@ -357,15 +364,15 @@ public class ServerListPlusCore {
         return result;
     }
 
-    private static String buildCommandHelp(String description) {
+    public static String buildCommandHelp(String description) {
         return buildCommandHelp(null, description);
     }
 
-    private static String buildCommandHelp(String cmd, String description) {
+    public static String buildCommandHelp(String cmd, String description) {
         return buildCommandHelp(cmd, null, description);
     }
 
-    private static String buildCommandHelp(String cmd, String usage, String description) {
+    public static String buildCommandHelp(String cmd, String usage, String description) {
         StringBuilder help = new StringBuilder();
         help.append(ChatFormat.RED).append("/slp");
         if (cmd != null) help.append(' ').append(cmd);

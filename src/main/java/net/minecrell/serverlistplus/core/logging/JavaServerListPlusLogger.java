@@ -18,27 +18,40 @@
 
 package net.minecrell.serverlistplus.core.logging;
 
-import net.minecrell.serverlistplus.core.ServerListPlusCore;
-
-import java.util.logging.Level;
+import net.minecrell.serverlistplus.core.ServerListPlusException;
 
 public class JavaServerListPlusLogger extends ServerListPlusLogger {
+    public static final java.util.logging.Level
+            DEBUG = java.util.logging.Level.FINE,
+            REPORT = java.util.logging.Level.CONFIG,
+            INFO = java.util.logging.Level.INFO,
+            WARN = java.util.logging.Level.WARNING,
+            ERROR = java.util.logging.Level.SEVERE;
+
+    private static final java.util.logging.Level[] LEVELS = {
+            ERROR,
+            WARN,
+            INFO,
+            REPORT,
+            DEBUG,
+    };
+
     private final java.util.logging.Logger logger;
 
-    public JavaServerListPlusLogger(ServerListPlusCore core, java.util.logging.Logger logger) {
-        super(core);
+    public JavaServerListPlusLogger(java.util.logging.Logger logger, String prefix) {
+        super(prefix);
         this.logger = logger;
     }
 
     @Override
-    public JavaServerListPlusLogger log(Level level, String message) {
-        logger.log(level, LOG_PREFIX + message);
+    public Logger<ServerListPlusException> log(Level level, String message) {
+        logger.log(LEVELS[level.ordinal()], prefixMessage(message));
         return this;
     }
 
     @Override
-    public JavaServerListPlusLogger log(Level level, Throwable thrown, String message) {
-        logger.log(level, LOG_PREFIX + message, thrown);
+    public Logger<ServerListPlusException> log(Level level, Throwable thrown, String message) {
+        logger.log(LEVELS[level.ordinal()], prefixMessage(message), thrown);
         return this;
     }
 }

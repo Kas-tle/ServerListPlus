@@ -22,10 +22,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import net.minecrell.serverlistplus.core.ServerListPlusCore;
-import net.minecrell.serverlistplus.core.config.PluginConf;
 import net.minecrell.serverlistplus.core.favicon.FaviconSource;
 import net.minecrell.serverlistplus.core.status.hosts.VirtualHost;
-import net.minecrell.serverlistplus.core.util.CountingIterator;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -33,6 +31,9 @@ import java.util.Map;
 import java.util.Set;
 
 public class StatusResponse {
+    // Used for custom player slots features to make client believe the server is outdated and show custom version text
+    public static final int MAGIC_FUTURE_VERSION = 9999;
+
     private final @Getter StatusRequest request;
     private final @Getter StatusManager status;
     private final ResponseFetcher fetcher;
@@ -42,7 +43,6 @@ public class StatusResponse {
     private Integer online, max; // The cached player count values
     private boolean playerSlots;
 
-    private boolean dynamicHoverCount = false;
     private Iterator<String> randomPlayers;
     private Map<String, Iterator<String>> randomPlayersMap;
 
@@ -69,12 +69,7 @@ public class StatusResponse {
 
     public Iterator<String> getRandomPlayers() {
         if (randomPlayers != null) return randomPlayers;
-        this.randomPlayers = getCore().getPlugin().getRandomPlayers();
-        if (randomPlayers != null && getCore().getConf(PluginConf.class).Samples.DynamicPlayers) {
-            this.randomPlayers = new CountingIterator<>(randomPlayers);
-            this.dynamicHoverCount = true;
-        }
-        return randomPlayers;
+        return this.randomPlayers = getCore().getPlugin().getRandomPlayers();
     }
 
     public Iterator<String> getRandomPlayers(String location) {
@@ -173,15 +168,6 @@ public class StatusResponse {
         return status.getPatch().getPlayerHover(this);
     }
 
-    public Integer getDynamicSamples() {
-        if (!dynamicHoverCount) return null;
-        return ((CountingIterator) randomPlayers).getCount();
-    }
-
-    public boolean useMultipleSamples() {
-        return getCore().getConf(PluginConf.class).Samples.Multiple;
-    }
-
     public String getPlayerSlots() {
         if (matchingHosts != null) {
             String result;
@@ -196,12 +182,16 @@ public class StatusResponse {
 
     public String getVersion() {
         String result;
-
-        if (request.getProtocolVersion() != null && fetcher.getProtocolVersion() == request.getProtocolVersion()) {
-            result = getPlayerSlots();
-            if (result != null) {
-                playerSlots = true;
-                return result;
+        if (request.getProtocolVersion() != null) {
+            // We might have already patched the response, so responseVersion might be == MAGIC_FUTURE_VERSION
+            // In that case, assume that displaying player slots is fine, since the client is probably not outdated
+            int responseVersion = fetcher.getProtocolVersion();
+            if (responseVersion == request.getProtocolVersion() || responseVersion == MAGIC_FUTURE_VERSION) {
+                result = getPlayerSlots();
+                if (result != null) {
+                    playerSlots = true;
+                    return result;
+                }
             }
         }
 
@@ -216,7 +206,7 @@ public class StatusResponse {
     }
 
     public Integer getProtocolVersion() {
-        if (playerSlots) return 9999;
+        if (playerSlots) return MAGIC_FUTURE_VERSION;
 
         if (matchingHosts != null) {
             Integer result;

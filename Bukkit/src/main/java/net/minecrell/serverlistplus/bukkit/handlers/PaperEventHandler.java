@@ -84,12 +84,12 @@ public class PaperEventHandler extends BukkitEventHandler {
         );
 
         // Description
-        String message = response.getDescription();
-        if (message != null) event.motd(new MineDown(message.replace('§', '&')).urlDetection(false).toComponent());
+        String description = response.getDescription();
+        if (description != null) event.motd(new MineDown(description.replace('§', '&')).urlDetection(false).toComponent());
 
         // Version name
-        message = response.getVersion();
-        if (message != null) event.setVersion(message);
+        String version = response.getVersion();
+        if (version != null) event.setVersion(version);
         // Protocol version
         Integer protocol = response.getProtocolVersion();
         if (protocol != null) event.setProtocolVersion(protocol);
@@ -98,32 +98,22 @@ public class PaperEventHandler extends BukkitEventHandler {
             event.setHidePlayers(true);
         } else {
             // Online players
-            Integer count = response.getOnlinePlayers();
-            if (count != null) event.setNumPlayers(count);
+            Integer onlinePlayers = response.getOnlinePlayers();
+            if (onlinePlayers != null) event.setNumPlayers(onlinePlayers);
             // Max players
-            count = response.getMaxPlayers();
-            if (count != null) event.setMaxPlayers(count);
+            Integer maxPlayers = response.getMaxPlayers();
+            if (maxPlayers != null) event.setMaxPlayers(maxPlayers);
 
             // Player hover
-            message = response.getPlayerHover();
-            if (message != null) {
+            String playerHover = response.getPlayerHover();
+            if (playerHover != null) {
                 List<PlayerProfile> profiles = event.getPlayerSample();
                 profiles.clear();
 
-                if (!message.isEmpty()) {
-                    LegacyComponentSerializer legacy = LegacyComponentSerializer.legacySection();
-                    if (response.useMultipleSamples()) {
-                        count = response.getDynamicSamples();
-                        List<String> lines = count != null ? Helper.splitLinesCached(message, count) :
-                                Helper.splitLinesCached(message);
-
-                        for (String line : lines) {
-                            line = legacy.serialize(new MineDown(line.replace('§', '&')).urlDetection(false).toComponent());
-                            profiles.add(bukkit.getServer().createProfile(UUIDs.EMPTY, line));
-                        }
-                    } else {
-                        message = legacy.serialize(new MineDown(message.replace('§', '&')).urlDetection(false).toComponent());
-                        profiles.add(bukkit.getServer().createProfile(message));
+                if (!playerHover.isEmpty()) {
+                    for (String line : Helper.splitLines(playerHover)) {
+                        line = LegacyComponentSerializer.legacySection().serialize(new MineDown(line.replace('§', '&')).urlDetection(false).toComponent());
+                        profiles.add(bukkit.getServer().createProfile(UUIDs.EMPTY, line));
                     }
                 }
             }
@@ -131,12 +121,12 @@ public class PaperEventHandler extends BukkitEventHandler {
 
         // Favicon
         FaviconSource favicon = response.getFavicon();
-        if (favicon != null) {
+        if (favicon == FaviconSource.NONE) {
+            event.setServerIcon(null);
+        } else if (favicon != null) {
             CachedServerIcon icon = bukkit.getFavicon(favicon);
             if (icon != null)
-                try {
-                    event.setServerIcon(icon);
-                } catch (UnsupportedOperationException ignored) {}
+                event.setServerIcon(icon);
         }
     }
 

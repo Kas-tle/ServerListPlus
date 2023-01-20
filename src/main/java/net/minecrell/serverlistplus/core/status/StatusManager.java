@@ -18,14 +18,14 @@
 
 package net.minecrell.serverlistplus.core.status;
 
-import static net.minecrell.serverlistplus.core.logging.Logger.WARN;
+import static net.minecrell.serverlistplus.core.logging.Logger.Level.WARN;
 
 import com.google.common.base.Function;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Multimap;
 import lombok.Getter;
 import net.minecrell.serverlistplus.core.AbstractManager;
@@ -47,7 +47,6 @@ import net.minecrell.serverlistplus.core.util.IntegerRange;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 public class StatusManager extends AbstractManager {
     private @Getter PersonalizedStatusPatch patch;
@@ -92,7 +91,7 @@ public class StatusManager extends AbstractManager {
         } else { // Configuration is empty
             this.patch = new PersonalizedStatusPatch();
             this.hosts = ImmutableMap.of();
-            this.replacers = ImmutableSetMultimap.of();
+            this.replacers = ImmutableListMultimap.of();
             this.favicons = false;
         }
 
@@ -109,11 +108,11 @@ public class StatusManager extends AbstractManager {
         private final Multimap<String, DynamicReplacer> replacers;
 
         private Preparation() {
-            this.replacers = HashMultimap.create();
+            this.replacers = ArrayListMultimap.create();
         }
 
         public Multimap<String, DynamicReplacer> createReplacers() {
-            return ImmutableSetMultimap.copyOf(replacers);
+            return ImmutableListMultimap.copyOf(replacers);
         }
 
         public PersonalizedStatusPatch preparePersonalizedPatch(PersonalizedStatusConf conf) {
@@ -162,6 +161,10 @@ public class StatusManager extends AbstractManager {
                 // Improve this somehow
                 ImmutableList.Builder<FaviconSource> builder = ImmutableList.builder();
 
+                if (Boolean.TRUE.equals(conf.Favicon.Disabled)) {
+                    builder.add(FaviconSource.NONE);
+                }
+
                 builder.addAll(prepareFavicons(conf.Favicon.Files, DefaultFaviconLoader.FILE));
                 builder.addAll(prepareFaviconSources(FaviconSearch.findInFolder(core, conf.Favicon.Folders),
                         DefaultFaviconLoader.FILE));
@@ -197,7 +200,7 @@ public class StatusManager extends AbstractManager {
         @Override
         public String apply(String result) {
             result = ReplacementManager.replaceStatic(core, result);
-            replacers.putAll(result, ReplacementManager.findDynamic(result));
+            replacers.putAll(result, ReplacementManager.findDynamicList(result));
             return result;
         }
 
@@ -207,7 +210,7 @@ public class StatusManager extends AbstractManager {
 
         protected List<String> prepareMessages(BooleanOrList<String> messages) {
             if (messages == null) return null;
-            if (messages.getBoolean() == Boolean.FALSE) return ImmutableList.of("");
+            if (Boolean.FALSE.equals(messages.getBoolean())) return ImmutableList.of("");
             return prepareMessages(messages.getList());
         }
 
@@ -242,6 +245,9 @@ public class StatusManager extends AbstractManager {
     FaviconSource prepare(StatusResponse response, FaviconSource favicon) {
         if (favicon == null) {
             return null;
+        }
+        if (favicon == FaviconSource.NONE) {
+            return favicon;
         }
 
         Collection<DynamicReplacer> replacer = replacers.get(favicon.getSource());

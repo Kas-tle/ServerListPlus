@@ -20,11 +20,10 @@ package net.minecrell.serverlistplus.core.plugin;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilderSpec;
-import com.google.common.cache.LoadingCache;
 import net.minecrell.serverlistplus.core.ServerListPlusCore;
 import net.minecrell.serverlistplus.core.config.storage.InstanceStorage;
-import net.minecrell.serverlistplus.core.favicon.FaviconSource;
-import net.minecrell.serverlistplus.core.logging.ServerListPlusLogger;
+import net.minecrell.serverlistplus.core.favicon.FaviconCache;
+import net.minecrell.serverlistplus.core.replacement.rgb.RGBFormat;
 import net.minecrell.serverlistplus.core.status.StatusManager;
 
 import java.nio.file.Path;
@@ -47,17 +46,17 @@ public interface ServerListPlusPlugin {
     Iterator<String> getRandomPlayers(String location);
 
     Cache<?, ?> getRequestCache();
-    LoadingCache<FaviconSource, ?> getFaviconCache();
+    FaviconCache<?> getFaviconCache();
 
     void runAsync(Runnable task);
     ScheduledTask scheduleAsync(Runnable task, long repeat, TimeUnit unit);
 
     String colorize(String s);
+    RGBFormat getRGBFormat();
 
-    ServerListPlusLogger createLogger(ServerListPlusCore core);
     void initialize(ServerListPlusCore core);
     void reloadCaches(ServerListPlusCore core);
-    void reloadFaviconCache(CacheBuilderSpec spec);
+    void createFaviconCache(CacheBuilderSpec spec);
     void configChanged(ServerListPlusCore core, InstanceStorage<Object> confs);
     void statusChanged(StatusManager status, boolean hasChanges);
 }

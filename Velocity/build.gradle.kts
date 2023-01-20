@@ -19,13 +19,13 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 repositories {
-    maven("https://repo.velocitypowered.com/snapshots/")
+    maven("https://nexus.velocitypowered.com/repository/maven-public/")
 }
 
 dependencies {
-    compileOnly("com.velocitypowered:velocity-api:1.1.3-SNAPSHOT")
+    compileOnly("com.velocitypowered:velocity-api:3.0.0")
     compile("de.themoep:minedown-adventure:1.7.0-SNAPSHOT")
-    annotationProcessor("com.velocitypowered:velocity-api:1.1.3-SNAPSHOT")
+    annotationProcessor("com.velocitypowered:velocity-api:3.0.0")
 }
 
 java {

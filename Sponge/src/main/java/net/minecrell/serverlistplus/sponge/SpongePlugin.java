@@ -22,23 +22,20 @@ import static org.spongepowered.api.Platform.Component.API;
 import static org.spongepowered.api.Platform.Component.IMPLEMENTATION;
 
 import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheBuilderSpec;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import com.google.inject.Inject;
-import net.minecrell.mcstats.SpongeStatsLite;
 import net.minecrell.serverlistplus.core.ServerListPlusCore;
 import net.minecrell.serverlistplus.core.ServerListPlusException;
 import net.minecrell.serverlistplus.core.config.PluginConf;
 import net.minecrell.serverlistplus.core.config.storage.InstanceStorage;
-import net.minecrell.serverlistplus.core.favicon.FaviconHelper;
+import net.minecrell.serverlistplus.core.favicon.FaviconCache;
 import net.minecrell.serverlistplus.core.favicon.FaviconSource;
 import net.minecrell.serverlistplus.core.logging.ServerListPlusLogger;
 import net.minecrell.serverlistplus.core.logging.Slf4jServerListPlusLogger;
 import net.minecrell.serverlistplus.core.plugin.ScheduledTask;
 import net.minecrell.serverlistplus.core.plugin.ServerListPlusPlugin;
 import net.minecrell.serverlistplus.core.plugin.ServerType;
+import net.minecrell.serverlistplus.core.replacement.rgb.RGBFormat;
 import net.minecrell.serverlistplus.core.status.ResponseFetcher;
 import net.minecrell.serverlistplus.core.status.StatusManager;
 import net.minecrell.serverlistplus.core.status.StatusRequest;
@@ -96,27 +93,13 @@ public class SpongePlugin implements ServerListPlusPlugin {
     @ConfigDir(sharedRoot = false) @Inject
     protected File configDir;
 
-    @Inject
-    protected SpongeStatsLite stats;
-
     private final StatusProtocolHandler handler;
 
     private ServerListPlusCore core;
 
     private Object loginListener, pingListener;
 
-    // Favicon cache
-    private final CacheLoader<FaviconSource, Optional<Favicon>> faviconLoader =
-            new CacheLoader<FaviconSource, Optional<Favicon>>() {
-                @Override
-                public Optional<Favicon> load(FaviconSource source) throws Exception {
-                    // Try loading the favicon
-                    BufferedImage image = FaviconHelper.loadSafely(core, source);
-                    if (image == null) return Optional.empty(); // Favicon loading failed
-                    else return Optional.of(game.getRegistry().loadFavicon(image)); // Success!
-                }
-            };
-    private LoadingCache<FaviconSource, Optional<Favicon>> faviconCache;
+    private FaviconCache<Favicon> faviconCache;
 
     @Inject
     public SpongePlugin(PluginManager pluginManager) {
@@ -131,7 +114,8 @@ public class SpongePlugin implements ServerListPlusPlugin {
         }
 
         try {
-            this.core = new ServerListPlusCore(this);
+            ServerListPlusLogger clogger = new Slf4jServerListPlusLogger(this.logger, ServerListPlusLogger.CORE_PREFIX);
+            this.core = new ServerListPlusCore(this, clogger);
             logger.info("Successfully loaded!");
         } catch (ServerListPlusException e) {
             logger.info("Please fix the error before restarting the server!");
@@ -141,8 +125,7 @@ public class SpongePlugin implements ServerListPlusPlugin {
             return;
         }
 
-        game.getCommandManager().register(this, new ServerListPlusCommand(), "serverlistplus", "serverlist+",
-                "serverlist", "slp", "sl+", "s++", "serverping+", "serverping", "spp", "slus");
+        game.getCommandManager().register(this, new ServerListPlusCommand(), "serverlistplus", "slp");
 
         core.setBanProvider(new SpongeBanProvider());
     }
@@ -174,7 +157,7 @@ public class SpongePlugin implements ServerListPlusPlugin {
 
         @Override
         public boolean testPermission(CommandSource source) {
-            return true;
+            return source.hasPermission("serverlistplus.command");
         }
 
         @Override
@@ -241,17 +224,20 @@ public class SpongePlugin implements ServerListPlusPlugin {
             });
 
             // Description
-            String message = response.getDescription();
-            if (message != null) ping.setDescription(TextSerializers.LEGACY_FORMATTING_CODE.deserialize(message));
+            String description = response.getDescription();
+            if (description != null) ping.setDescription(TextSerializers.LEGACY_FORMATTING_CODE.deserialize(description));
 
             // Version
             handler.setVersion(ping, response);
 
             // Favicon
             FaviconSource favicon = response.getFavicon();
-            if (favicon != null) {
-                Optional<Favicon> icon = faviconCache.getUnchecked(favicon);
-                if (icon.isPresent()) ping.setFavicon(icon.get());
+            if (favicon == FaviconSource.NONE) {
+                ping.setFavicon(null);
+            } else if (favicon != null) {
+                com.google.common.base.Optional<Favicon> icon = faviconCache.get(favicon);
+                if (icon.isPresent())
+                    ping.setFavicon(icon.get());
             }
 
             if (players != null) {
@@ -259,29 +245,22 @@ public class SpongePlugin implements ServerListPlusPlugin {
                     ping.setHidePlayers(true);
                 } else {
                     // Online players
-                    Integer count = response.getOnlinePlayers();
-                    if (count != null) players.setOnline(count);
+                    Integer onlinePlayers = response.getOnlinePlayers();
+                    if (onlinePlayers != null) players.setOnline(onlinePlayers);
 
                     // Max players
-                    count = response.getMaxPlayers();
-                    if (count != null) players.setMax(count);
+                    Integer maxPlayers = response.getMaxPlayers();
+                    if (maxPlayers != null) players.setMax(maxPlayers);
 
-                    message = response.getPlayerHover();
-                    if (message != null) {
+                    String playerHover = response.getPlayerHover();
+                    if (playerHover != null) {
                         List<GameProfile> profiles = players.getProfiles();
                         profiles.clear();
 
-                        if (!message.isEmpty()) {
-                            if (response.useMultipleSamples()) {
-                                count = response.getDynamicSamples();
-                                List<String> lines = count != null ? Helper.splitLinesCached(message, count) :
-                                        Helper.splitLinesCached(message);
-
-                                for (String line : lines) {
-                                    profiles.add(GameProfile.of(UUIDs.EMPTY, line));
-                                }
-                            } else
-                                profiles.add(GameProfile.of(UUIDs.EMPTY, message));
+                        if (!playerHover.isEmpty()) {
+                            for (String line : Helper.splitLines(playerHover)) {
+                                profiles.add(GameProfile.of(UUIDs.EMPTY, line));
+                            }
                         }
                     }
                 }
@@ -362,7 +341,7 @@ public class SpongePlugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public LoadingCache<FaviconSource, ?> getFaviconCache() {
+    public FaviconCache<?> getFaviconCache() {
         return faviconCache;
     }
 
@@ -383,8 +362,8 @@ public class SpongePlugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public ServerListPlusLogger createLogger(ServerListPlusCore core) {
-        return new Slf4jServerListPlusLogger(core, logger);
+    public RGBFormat getRGBFormat() {
+        return RGBFormat.UNSUPPORTED;
     }
 
     @Override
@@ -398,14 +377,16 @@ public class SpongePlugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public void reloadFaviconCache(CacheBuilderSpec spec) {
-        if (spec != null) {
-            this.faviconCache = CacheBuilder.from(spec).build(faviconLoader);
+    public void createFaviconCache(CacheBuilderSpec spec) {
+        if (faviconCache == null) {
+            faviconCache = new FaviconCache<Favicon>(this, spec) {
+                @Override
+                protected Favicon createFavicon(BufferedImage image) throws Exception {
+                    return game.getRegistry().loadFavicon(image);
+                }
+            };
         } else {
-            // Delete favicon cache
-            faviconCache.invalidateAll();
-            faviconCache.cleanUp();
-            this.faviconCache = null;
+            faviconCache.reload(spec);
         }
     }
 
@@ -421,13 +402,6 @@ public class SpongePlugin implements ServerListPlusPlugin {
             game.getEventManager().unregisterListeners(loginListener);
             this.loginListener = null;
             logger.debug("Unregistered player tracking listener.");
-        }
-
-        // Plugin statistics
-        if (confs.get(PluginConf.class).Stats) {
-            this.stats.start();
-        } else {
-            this.stats.stop();
         }
     }
 

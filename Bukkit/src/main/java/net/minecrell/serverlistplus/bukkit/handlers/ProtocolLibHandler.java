@@ -53,7 +53,7 @@ public class ProtocolLibHandler extends StatusHandler {
 
     public final class StatusPacketListener extends PacketAdapter {
         public StatusPacketListener() {
-            super(PacketAdapter.params(bukkit, PacketType.Status.Server.OUT_SERVER_INFO,
+            super(PacketAdapter.params(bukkit, PacketType.Status.Server.SERVER_INFO,
                     PacketType.Handshake.Client.SET_PROTOCOL).optionAsync());
         }
 
@@ -105,9 +105,9 @@ public class ProtocolLibHandler extends StatusHandler {
 
             // Description is modified in BukkitEventHandler, but we modify it here again,
             // because the BukkitEventHandler has no access to information like virtual hosts.
-            String message = response.getDescription();
-            if (message != null) {
-                BaseComponent[] components = new MineDown(message.replace('§', '&')).urlDetection(false).toComponent();
+            String description = response.getDescription();
+            if (description != null) {
+                BaseComponent[] components = new MineDown(description.replace('§', '&')).urlDetection(false).toComponent();
                 if (ping.getVersionProtocol() < 735) {
                     components = Util.rgbColorsToLegacy(components);
                 }
@@ -115,8 +115,8 @@ public class ProtocolLibHandler extends StatusHandler {
             }
 
             // Version name
-            message = response.getVersion();
-            if (message != null) ping.setVersionName(message);
+            String version = response.getVersion();
+            if (version != null) ping.setVersionName(version);
             // Protocol version
             Integer protocol = response.getProtocolVersion();
             if (protocol != null) ping.setVersionProtocol(protocol);
@@ -126,32 +126,27 @@ public class ProtocolLibHandler extends StatusHandler {
                     ping.setPlayersVisible(false);
                 } else {
                     // Online players
-                    Integer count = response.getOnlinePlayers();
-                    if (count != null) ping.setPlayersOnline(count);
+                    Integer onlinePlayers = response.getOnlinePlayers();
+                    if (onlinePlayers != null) ping.setPlayersOnline(onlinePlayers);
 
                     // Max players are modified in BukkitEventHandler
-                    count = response.getMaxPlayers();
-                    if (count != null) ping.setPlayersMaximum(count);
+                    Integer maxPlayers = response.getMaxPlayers();
+                    if (maxPlayers != null) ping.setPlayersMaximum(maxPlayers);
 
                     // Player hover
-                    message = response.getPlayerHover();
-                    if (message != null) {
-                        if (message.isEmpty()) {
+                    String playerHover = response.getPlayerHover();
+                    if (playerHover != null) {
+                        if (playerHover.isEmpty()) {
                             ping.setPlayers(Collections.<WrappedGameProfile>emptyList());
-                        } else if (response.useMultipleSamples()) {
-                            count = response.getDynamicSamples();
-
-                            ping.setPlayers(Iterables.transform(
-                                    count != null ? Helper.splitLines(message, count) : Helper.splitLines(message),
+                        } else {
+                            ping.setPlayers(Iterables.transform(Helper.splitLines(playerHover),
                                     new Function<String, WrappedGameProfile>() {
-                                @Override
-                                public WrappedGameProfile apply(String input) {
-                                    return new WrappedGameProfile(UUIDs.EMPTY, input);
-                                }
-                            }));
-                        } else
-                            ping.setPlayers(Collections.singleton(
-                                    new WrappedGameProfile(UUIDs.EMPTY, message)));
+                                        @Override
+                                        public WrappedGameProfile apply(String input) {
+                                            return new WrappedGameProfile(UUIDs.EMPTY, input);
+                                        }
+                                    }));
+                        }
                     }
                 }
             }

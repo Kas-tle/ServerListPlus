@@ -20,10 +20,7 @@ package net.minecrell.serverlistplus.canary;
 
 import com.google.common.base.Optional;
 import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheBuilderSpec;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import com.mojang.authlib.GameProfile;
 import lombok.SneakyThrows;
 import net.canarymod.Canary;
@@ -44,12 +41,14 @@ import net.minecrell.serverlistplus.core.ServerListPlusCore;
 import net.minecrell.serverlistplus.core.ServerListPlusException;
 import net.minecrell.serverlistplus.core.config.PluginConf;
 import net.minecrell.serverlistplus.core.config.storage.InstanceStorage;
-import net.minecrell.serverlistplus.core.favicon.FaviconHelper;
+import net.minecrell.serverlistplus.core.favicon.FaviconCache;
 import net.minecrell.serverlistplus.core.favicon.FaviconSource;
+import net.minecrell.serverlistplus.core.logging.Log4j2ServerListPlusLogger;
 import net.minecrell.serverlistplus.core.logging.ServerListPlusLogger;
 import net.minecrell.serverlistplus.core.plugin.ScheduledTask;
 import net.minecrell.serverlistplus.core.plugin.ServerListPlusPlugin;
 import net.minecrell.serverlistplus.core.plugin.ServerType;
+import net.minecrell.serverlistplus.core.replacement.rgb.RGBFormat;
 import net.minecrell.serverlistplus.core.status.ResponseFetcher;
 import net.minecrell.serverlistplus.core.status.StatusManager;
 import net.minecrell.serverlistplus.core.status.StatusRequest;
@@ -59,7 +58,6 @@ import net.minecrell.serverlistplus.core.util.Randoms;
 import net.minecrell.serverlistplus.core.util.SnakeYAML;
 import net.minecrell.serverlistplus.core.util.UUIDs;
 import net.visualillusionsent.utils.TaskManager;
-import org.mcstats.MetricsLite;
 
 import java.awt.image.BufferedImage;
 import java.lang.reflect.Field;
@@ -83,22 +81,9 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
     private Path pluginFolder;
     private PluginListener loginListener, pingListener;
 
-    private MetricsLite metrics;
-
     private final Field PROFILES_FIELD;
 
-    // Favicon cache
-    private final CacheLoader<FaviconSource, Optional<String>> faviconLoader =
-            new CacheLoader<FaviconSource, Optional<String>>() {
-                @Override
-                public Optional<String> load(FaviconSource source) throws Exception {
-                    // Try loading the favicon
-                    BufferedImage image = FaviconHelper.loadSafely(core, source);
-                    if (image == null) return Optional.absent(); // Favicon loading failed
-                    else return Optional.of(CanaryFavicon.create(image)); // Success!
-                }
-            };
-    private LoadingCache<FaviconSource, Optional<String>> faviconCache;
+    private FaviconCache<String> faviconCache;
 
     private static void loadJAR(Path path) throws Exception {
         Method method = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
@@ -124,7 +109,8 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
         }
 
         try {
-            this.core = new ServerListPlusCore(this);
+            ServerListPlusLogger clogger = new Log4j2ServerListPlusLogger(getLogman(), ServerListPlusLogger.CORE_PREFIX);
+            this.core = new ServerListPlusCore(this, clogger);
             getLogman().info("Successfully loaded!");
         } catch (ServerListPlusException e) {
             getLogman().info("Please fix the error before restarting the server!");
@@ -157,8 +143,8 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
     public final class ServerListPlusCommand implements CommandListener {
         private ServerListPlusCommand() {}
 
-        @Command(aliases = {"serverlistplus", "serverlist+", "serverlist", "slp", "sl+", "s++", "serverping+",
-                "serverping", "spp", "slus"}, permissions = "", description = "ServerListPlus", toolTip = "")
+        @Command(aliases = {"serverlistplus", "slp"}, description = "Configure ServerListPlus",
+                permissions = "serverlistplus.command", toolTip = "")
         public void onCommand(MessageReceiver sender, String[] args) {
             core.executeCommand(new CanaryCommandSender(sender), args[0], Arrays.copyOfRange(args, 1, args.length));
         }
@@ -206,26 +192,28 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
             });
 
             // Description
-            String message = response.getDescription();
-            if (message != null) hook.setMotd(message);
+            String description = response.getDescription();
+            if (description != null) hook.setMotd(description);
 
             // Favicon
             FaviconSource favicon = response.getFavicon();
-            if (favicon != null) {
-                Optional<String> icon = faviconCache.getUnchecked(favicon);
+            if (favicon == FaviconSource.NONE) {
+                //hook.setFavicon(null); // FIXME (in Canary): Would cause a NPE
+            } else if (favicon != null) {
+                Optional<String> icon = faviconCache.get(favicon);
                 if (icon.isPresent()) hook.setFavicon(icon.get());
             }
 
             // Online players
-            Integer count = response.getOnlinePlayers();
-            if (count != null) hook.setCurrentPlayers(count);
+            Integer onlinePlayers = response.getOnlinePlayers();
+            if (onlinePlayers != null) hook.setCurrentPlayers(onlinePlayers);
             // Max players
-            count = response.getMaxPlayers();
-            if (count != null) hook.setMaxPlayers(count);
+            Integer maxPlayers = response.getMaxPlayers();
+            if (maxPlayers != null) hook.setMaxPlayers(maxPlayers);
 
             // Player hover
-            message = response.getPlayerHover();
-            if (message != null) {
+            String playerHover = response.getPlayerHover();
+            if (playerHover != null) {
                 List<GameProfile> profiles = hook.getProfiles();
                 if (!(profiles instanceof ArrayList)) {
                     profiles = new ArrayList<>();
@@ -234,17 +222,10 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
                     profiles.clear();
                 }
 
-                if (!message.isEmpty()) {
-                    if (response.useMultipleSamples()) {
-                        count = response.getDynamicSamples();
-                        List<String> lines = count != null ? Helper.splitLinesCached(message, count) :
-                                Helper.splitLinesCached(message);
-
-                        for (String line : lines) {
-                            profiles.add(new GameProfile(UUIDs.EMPTY, line));
-                        }
-                    } else
-                        profiles.add(new GameProfile(UUIDs.EMPTY, message));
+                if (!playerHover.isEmpty()) {
+                    for (String line : Helper.splitLines(playerHover)) {
+                        profiles.add(new GameProfile(UUIDs.EMPTY, line));
+                    }
                 }
             }
         }
@@ -309,7 +290,7 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public LoadingCache<FaviconSource, ?> getFaviconCache() {
+    public FaviconCache<?> getFaviconCache() {
         return faviconCache;
     }
 
@@ -331,8 +312,8 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public ServerListPlusLogger createLogger(ServerListPlusCore core) {
-        return new Log4j2ServerListPlusLogger(core, getLogman());
+    public RGBFormat getRGBFormat() {
+        return RGBFormat.UNSUPPORTED;
     }
 
     @Override
@@ -346,14 +327,16 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public void reloadFaviconCache(CacheBuilderSpec spec) {
-        if (spec != null) {
-            this.faviconCache = CacheBuilder.from(spec).build(faviconLoader);
+    public void createFaviconCache(CacheBuilderSpec spec) {
+        if (faviconCache == null) {
+            faviconCache = new FaviconCache<String>(this, spec) {
+                @Override
+                protected String createFavicon(BufferedImage image) throws Exception {
+                    return CanaryFavicon.create(image);
+                }
+            };
         } else {
-            // Delete favicon cache
-            faviconCache.invalidateAll();
-            faviconCache.cleanUp();
-            this.faviconCache = null;
+            faviconCache.reload(spec);
         }
     }
 
@@ -370,23 +353,6 @@ public class CanaryPlugin extends Plugin implements ServerListPlusPlugin {
             this.loginListener = null;
             getLogman().debug("Unregistered proxy player tracking listener.");
         }
-
-        // Plugin statistics
-        if (confs.get(PluginConf.class).Stats) {
-            if (metrics == null)
-                try {
-                    this.metrics = new MetricsLite(this);
-                    metrics.start();
-                } catch (Throwable e) {
-                    getLogman().debug("Failed to enable plugin statistics: {}", Helper.causedException(e));
-                }
-        } else if (metrics != null)
-            try {
-                metrics.disable();
-                this.metrics = null;
-            } catch (Throwable e) {
-                getLogman().debug("Failed to disable plugin statistics: ", Helper.causedException(e));
-            }
     }
 
     @Override

@@ -20,8 +20,8 @@ package net.minecrell.serverlistplus.core.favicon;
 
 import static com.google.common.net.HttpHeaders.ACCEPT;
 import static com.google.common.net.HttpHeaders.USER_AGENT;
-import static net.minecrell.serverlistplus.core.logging.Logger.DEBUG;
-import static net.minecrell.serverlistplus.core.logging.Logger.WARN;
+import static net.minecrell.serverlistplus.core.logging.Logger.Level.DEBUG;
+import static net.minecrell.serverlistplus.core.logging.Logger.Level.WARN;
 
 import com.google.common.base.Strings;
 import com.google.common.io.BaseEncoding;
@@ -172,19 +172,6 @@ public final class FaviconHelper {
     public static BufferedImage load(ServerListPlusCore core, FaviconSource source) throws IOException {
         return core.getConf(PluginConf.class).Favicon.ResizeStrategy.resize(source.getLoader().load(core,
                 source.getSource()), FAVICON_SIZE, FAVICON_SIZE);
-    }
-
-    public static BufferedImage loadSafely(ServerListPlusCore core, FaviconSource source) {
-        try { // Try loading the favicon
-            return load(core, source);
-        } catch (Exception e) {
-            core.getLogger()
-                    .log(WARN, "Unable to load favicon from {}: {} -> {}",
-                            source.getLoader(), source.getSource(), Helper.causedException(e))
-                    .log(DEBUG, e, "Unable to load favicon from {}: {}",
-                            source.getLoader(), source.getSource());
-            return null;
-        }
     }
 
     private static boolean isSolidColor(BufferedImage image, int x, int y, int width, int height) {

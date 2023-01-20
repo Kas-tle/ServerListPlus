@@ -19,13 +19,9 @@
 package net.minecrell.serverlistplus.velocity;
 
 import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheBuilderSpec;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import com.google.inject.Inject;
-import com.velocitypowered.api.command.Command;
-import com.velocitypowered.api.command.CommandSource;
+import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
@@ -42,6 +38,8 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerPing;
 import com.velocitypowered.api.util.Favicon;
+import com.velocitypowered.api.util.ProxyVersion;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import de.themoep.minedown.adventure.MineDown;
 import de.themoep.minedown.adventure.Util;
 import net.kyori.adventure.text.Component;
@@ -49,13 +47,14 @@ import net.minecrell.serverlistplus.core.ServerListPlusCore;
 import net.minecrell.serverlistplus.core.ServerListPlusException;
 import net.minecrell.serverlistplus.core.config.PluginConf;
 import net.minecrell.serverlistplus.core.config.storage.InstanceStorage;
-import net.minecrell.serverlistplus.core.favicon.FaviconHelper;
+import net.minecrell.serverlistplus.core.favicon.FaviconCache;
 import net.minecrell.serverlistplus.core.favicon.FaviconSource;
 import net.minecrell.serverlistplus.core.logging.ServerListPlusLogger;
 import net.minecrell.serverlistplus.core.logging.Slf4jServerListPlusLogger;
 import net.minecrell.serverlistplus.core.plugin.ScheduledTask;
 import net.minecrell.serverlistplus.core.plugin.ServerListPlusPlugin;
 import net.minecrell.serverlistplus.core.plugin.ServerType;
+import net.minecrell.serverlistplus.core.replacement.rgb.RGBFormat;
 import net.minecrell.serverlistplus.core.status.ResponseFetcher;
 import net.minecrell.serverlistplus.core.status.StatusManager;
 import net.minecrell.serverlistplus.core.status.StatusRequest;
@@ -63,11 +62,9 @@ import net.minecrell.serverlistplus.core.status.StatusResponse;
 import net.minecrell.serverlistplus.core.util.FormattingCodes;
 import net.minecrell.serverlistplus.core.util.Helper;
 import net.minecrell.serverlistplus.core.util.Randoms;
-import net.minecrell.serverlistplus.core.util.SnakeYAML;
 import net.minecrell.serverlistplus.core.util.UUIDs;
 import org.slf4j.Logger;
 
-import javax.annotation.Nonnull;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -79,6 +76,9 @@ import java.util.concurrent.TimeUnit;
 
 @Plugin(id = "serverlistplus")
 public class VelocityPlugin implements ServerListPlusPlugin {
+
+    private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.builder().hexColors().build();
+
     private final Logger logger;
 
     private final ProxyServer proxy;
@@ -88,18 +88,7 @@ public class VelocityPlugin implements ServerListPlusPlugin {
     private EventHandler<ProxyPingEvent> pingListener;
     private Object connectionListener;
 
-    // Favicon cache
-    private final CacheLoader<FaviconSource, Optional<Favicon>> faviconLoader =
-            new CacheLoader<FaviconSource, Optional<Favicon>>() {
-                @Override
-                public Optional<Favicon> load(FaviconSource source) throws Exception {
-                    // Try loading the favicon
-                    BufferedImage image = FaviconHelper.loadSafely(core, source);
-                    if (image == null) return Optional.empty(); // Favicon loading failed
-                    else return Optional.of(Favicon.create(image)); // Success!
-                }
-            };
-    private LoadingCache<FaviconSource, Optional<Favicon>> faviconCache;
+    private FaviconCache<Favicon> faviconCache;
 
     @Inject
     public VelocityPlugin(Logger logger, ProxyServer proxy, @DataDirectory Path pluginFolder) {
@@ -110,15 +99,9 @@ public class VelocityPlugin implements ServerListPlusPlugin {
 
     @Subscribe
     public void initialize(ProxyInitializeEvent event) {
-        try {
-            this.proxy.getPluginManager().addToClasspath(this, SnakeYAML.load(this.pluginFolder));
-        } catch (Exception e) {
-            logger.error("Failed to load snakeyaml dependency", e);
-            return;
-        }
-
         try { // Load the core first
-            this.core = new ServerListPlusCore(this);
+            ServerListPlusLogger clogger = new Slf4jServerListPlusLogger(this.logger, ServerListPlusLogger.CORE_PREFIX);
+            this.core = new ServerListPlusCore(this, clogger);
             logger.info("Successfully loaded!");
         } catch (ServerListPlusException e) {
             logger.info("Please fix the error before restarting the server!");
@@ -129,8 +112,7 @@ public class VelocityPlugin implements ServerListPlusPlugin {
         }
 
         // Register commands
-        this.proxy.getCommandManager().register(new ServerListPlusCommand(), "serverlistplus",
-                "serverlist+", "serverlist", "slp", "sl+", "s++", "serverping+", "serverping", "spp", "slus");
+        this.proxy.getCommandManager().register("serverlistplus", new ServerListPlusCommand(), "slp");
     }
 
     @Subscribe
@@ -141,19 +123,25 @@ public class VelocityPlugin implements ServerListPlusPlugin {
     }
 
     // Commands
-    public final class ServerListPlusCommand implements Command {
+    public final class ServerListPlusCommand implements SimpleCommand {
         private ServerListPlusCommand() {}
 
         @Override
-        public void execute(@Nonnull CommandSource source, @Nonnull String[] args) {
-            core.executeCommand(new VelocityCommandSender(proxy, source), "serverlistplus", args);
+        public void execute(Invocation invocation) {
+            core.executeCommand(new VelocityCommandSender(proxy, invocation.source()),
+                    invocation.alias(), invocation.arguments());
         }
 
         @Override
-        public List<String> suggest(@Nonnull CommandSource source, @Nonnull String[] currentArgs) {
-            return core.tabComplete(new VelocityCommandSender(proxy, source), "serverlistplus", currentArgs);
+        public List<String> suggest(Invocation invocation) {
+            return core.tabComplete(new VelocityCommandSender(proxy, invocation.source()),
+                    invocation.alias(), invocation.arguments());
         }
 
+        @Override
+        public boolean hasPermission(Invocation invocation) {
+            return invocation.source().hasPermission("serverlistplus.command");
+        }
     }
 
     // Player tracking
@@ -216,9 +204,9 @@ public class VelocityPlugin implements ServerListPlusPlugin {
             ServerPing.Builder builder = ping.asBuilder();
 
             // Description
-            String message = response.getDescription();
-            if (message != null) {
-                Component component = new MineDown(message.replace('§', '&')).urlDetection(false).toComponent();
+            String description = response.getDescription();
+            if (description != null) {
+                Component component = new MineDown(description.replace('§', '&')).urlDetection(false).toComponent();
                 if (event.getConnection().getProtocolVersion().getProtocol() < ProtocolVersion.MINECRAFT_1_16.getProtocol()) {
                     component = Util.rgbColorsToLegacy(component);
                 }
@@ -227,13 +215,13 @@ public class VelocityPlugin implements ServerListPlusPlugin {
 
             if (version != null) {
                 // Version name
-                message = response.getVersion();
+                String versionName = response.getVersion();
                 // Protocol version
                 Integer protocol = response.getProtocolVersion();
 
-                if (message != null || protocol != null) builder.version(new ServerPing.Version(
+                if (versionName != null || protocol != null) builder.version(new ServerPing.Version(
                         protocol != null ? protocol : version.getProtocol(),
-                        message != null ? message : version.getName()
+                        versionName != null ? versionName : version.getName()
                 ));
             }
 
@@ -242,30 +230,25 @@ public class VelocityPlugin implements ServerListPlusPlugin {
                     builder.nullPlayers();
                 } else {
                     // Online players
-                    Integer count = response.getOnlinePlayers();
-                    if (count != null) builder.onlinePlayers(count);
+                    Integer onlinePlayers = response.getOnlinePlayers();
+                    if (onlinePlayers != null) builder.onlinePlayers(onlinePlayers);
                     // Max players
-                    count = response.getMaxPlayers();
-                    if (count != null) builder.maximumPlayers(count);
+                    Integer maxPlayers = response.getMaxPlayers();
+                    if (maxPlayers != null) builder.maximumPlayers(maxPlayers);
 
                     // Player hover
-                    message = response.getPlayerHover();
-                    if (message != null) {
+                    String playerHover = response.getPlayerHover();
+                    if (playerHover != null) {
                         builder.clearSamplePlayers();
 
-                        if (!message.isEmpty()) {
-                            if (response.useMultipleSamples()) {
-                                count = response.getDynamicSamples();
-                                List<String> lines = count != null ? Helper.splitLinesCached(message, count) :
-                                        Helper.splitLinesCached(message);
+                        if (!playerHover.isEmpty()) {
+                            List<String> lines = Helper.splitLinesToList(playerHover);
 
-                                ServerPing.SamplePlayer[] sample = new ServerPing.SamplePlayer[lines.size()];
-                                for (int i = 0; i < sample.length; i++)
-                                    sample[i] = new ServerPing.SamplePlayer(lines.get(i), UUIDs.EMPTY);
+                            ServerPing.SamplePlayer[] sample = new ServerPing.SamplePlayer[lines.size()];
+                            for (int i = 0; i < sample.length; i++)
+                                sample[i] = new ServerPing.SamplePlayer(lines.get(i), UUIDs.EMPTY);
 
-                                builder.samplePlayers(sample);
-                            } else
-                                builder.samplePlayers(new ServerPing.SamplePlayer(message, UUIDs.EMPTY));
+                            builder.samplePlayers(sample);
                         }
                     }
                 }
@@ -273,9 +256,12 @@ public class VelocityPlugin implements ServerListPlusPlugin {
 
             // Favicon
             FaviconSource favicon = response.getFavicon();
-            if (favicon != null) {
-                Optional<Favicon> icon = faviconCache.getUnchecked(favicon);
-                icon.ifPresent(builder::favicon);
+            if (favicon == FaviconSource.NONE) {
+                builder.clearFavicon();
+            } else if (favicon != null) {
+                com.google.common.base.Optional<Favicon> icon = faviconCache.get(favicon);
+                if (icon.isPresent())
+                    builder.favicon(icon.get());
             }
 
             event.setPing(builder.build());
@@ -289,13 +275,13 @@ public class VelocityPlugin implements ServerListPlusPlugin {
 
     @Override
     public ServerType getServerType() {
-        return ServerType.BUNGEE;
+        return ServerType.VELOCITY;
     }
 
     @Override
     public String getServerImplementation() {
-        return "Velocity"; // TODO
-        //return getProxy().getVersion() + " (MC: " + getProxy().getGameVersion() + ')';
+        ProxyVersion version = this.proxy.getVersion();
+        return version.getName() + " " + version.getVersion();
     }
 
     @Override
@@ -347,7 +333,7 @@ public class VelocityPlugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public LoadingCache<FaviconSource, Optional<Favicon>> getFaviconCache() {
+    public FaviconCache<?> getFaviconCache() {
         return faviconCache;
     }
 
@@ -367,12 +353,12 @@ public class VelocityPlugin implements ServerListPlusPlugin {
 
     @Override
     public String colorize(String s) {
-        return FormattingCodes.colorize(s);
+        return FormattingCodes.colorizeHex(s);
     }
 
     @Override
-    public ServerListPlusLogger createLogger(ServerListPlusCore core) {
-        return new Slf4jServerListPlusLogger(core, this.logger);
+    public RGBFormat getRGBFormat() {
+        return RGBFormat.ADVENTURE;
     }
 
     @Override
@@ -386,14 +372,16 @@ public class VelocityPlugin implements ServerListPlusPlugin {
     }
 
     @Override
-    public void reloadFaviconCache(CacheBuilderSpec spec) {
-        if (spec != null) {
-            this.faviconCache = CacheBuilder.from(spec).build(faviconLoader);
+    public void createFaviconCache(CacheBuilderSpec spec) {
+        if (faviconCache == null) {
+            faviconCache = new FaviconCache<Favicon>(this, spec) {
+                @Override
+                protected Favicon createFavicon(BufferedImage image) throws Exception {
+                    return Favicon.create(image);
+                }
+            };
         } else {
-            // Delete favicon cache
-            faviconCache.invalidateAll();
-            faviconCache.cleanUp();
-            this.faviconCache = null;
+            faviconCache.reload(spec);
         }
     }
 
