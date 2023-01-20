@@ -20,6 +20,8 @@ package net.minecrell.serverlistplus.bukkit.handlers;
 
 import com.destroystokyo.paper.event.server.PaperServerListPingEvent;
 import com.destroystokyo.paper.profile.PlayerProfile;
+import de.themoep.minedown.adventure.MineDown;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.minecrell.serverlistplus.bukkit.BukkitPlugin;
 import net.minecrell.serverlistplus.core.favicon.FaviconSource;
 import net.minecrell.serverlistplus.core.status.ResponseFetcher;
@@ -83,7 +85,7 @@ public class PaperEventHandler extends BukkitEventHandler {
 
         // Description
         String message = response.getDescription();
-        if (message != null) event.setMotd(message);
+        if (message != null) event.motd(new MineDown(message.replace('§', '&')).urlDetection(false).toComponent());
 
         // Version name
         message = response.getVersion();
@@ -109,15 +111,18 @@ public class PaperEventHandler extends BukkitEventHandler {
                 profiles.clear();
 
                 if (!message.isEmpty()) {
+                    LegacyComponentSerializer legacy = LegacyComponentSerializer.legacySection();
                     if (response.useMultipleSamples()) {
                         count = response.getDynamicSamples();
                         List<String> lines = count != null ? Helper.splitLinesCached(message, count) :
                                 Helper.splitLinesCached(message);
 
                         for (String line : lines) {
+                            line = legacy.serialize(new MineDown(line.replace('§', '&')).urlDetection(false).toComponent());
                             profiles.add(bukkit.getServer().createProfile(UUIDs.EMPTY, line));
                         }
                     } else {
+                        message = legacy.serialize(new MineDown(message.replace('§', '&')).urlDetection(false).toComponent());
                         profiles.add(bukkit.getServer().createProfile(message));
                     }
                 }

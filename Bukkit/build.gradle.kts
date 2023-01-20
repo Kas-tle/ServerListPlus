@@ -25,7 +25,7 @@ plugins {
 repositories {
     maven("https://oss.sonatype.org/content/repositories/snapshots/")
     maven("https://repo.minecrell.net/snapshots/")
-    maven("https://destroystokyo.com/repo/repository/maven-snapshots/")
+    maven("https://repo.papermc.io/repository/maven-snapshots/")
     maven("http://repo.dmulloy2.net/nexus/repository/releases/")
     maven("http://repo.dmulloy2.net/nexus/repository/snapshots/")
     maven("https://ci.frostcast.net/plugin/repository/everything/")
@@ -34,7 +34,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.destroystokyo.paper:paper-api:1.16.3-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:1.17-R0.1-SNAPSHOT")
     compileOnly("com.comphenix.protocol:ProtocolLib-API:4.4.0") { isTransitive = false }
 
     compileOnly("me.confuser.banmanager:BanManagerCommon:7.2.2") { isTransitive = false }
@@ -42,7 +42,9 @@ dependencies {
     compileOnly("com.github.netherfoam:MaxBans:156239e1f1") { isTransitive = false }
 
     compile("org.mcstats.bukkit:metrics-lite:R8-SNAPSHOT") { isTransitive = false }
-    compile("de.themoep:minedown:1.7.0-SNAPSHOT")
+    compile("de.themoep:minedown:1.7.1-SNAPSHOT")
+    compile("de.themoep:minedown-adventure:1.7.2-SNAPSHOT")
+
 }
 
 bukkit {
@@ -72,6 +74,7 @@ tasks {
         dependencies {
             include(dependency("org.mcstats.bukkit:metrics-lite"))
             include(dependency("de.themoep:minedown"))
+            include(dependency("de.themoep:minedown-adventure"))
         }
 
         relocate("org.mcstats", "net.minecrell.serverlistplus.bukkit.mcstats")
