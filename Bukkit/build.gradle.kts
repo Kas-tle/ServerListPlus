@@ -40,8 +40,8 @@ dependencies {
     compileOnly("com.github.seancfoley:ipaddress:5.3.3") /* For BanManager */
     compileOnly("com.github.netherfoam:MaxBans:156239e1f1") { isTransitive = false }
 
-    compile("de.themoep:minedown:1.7.1-SNAPSHOT")
-    compile("de.themoep:minedown-adventure:1.7.2-SNAPSHOT")
+    implementation("de.themoep:minedown:1.7.1-SNAPSHOT")
+    implementation("de.themoep:minedown-adventure:1.7.2-SNAPSHOT")
 
     compileOnly("me.clip:placeholderapi:2.10.10") { isTransitive = false }
 }
@@ -77,7 +77,7 @@ bukkit {
 }
 
 tasks {
-    withType<ShadowJar> {
+    shadowJar {
         dependencies {
             include(dependency("de.themoep:minedown"))
             include(dependency("de.themoep:minedown-adventure"))

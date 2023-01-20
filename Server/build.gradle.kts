@@ -16,7 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer
 
 java {
@@ -47,7 +46,7 @@ tasks {
     named<Jar>("jar") {
         manifest.attributes(mapOf("Main-Class" to "net.minecrell.serverlistplus.server.Main"))
     }
-    named<ShadowJar>("shadowJar") {
+    shadowJar {
         exclude("module-info.class")
         exclude("META-INF/versions/*/module-info.class")
         manifest.attributes(mapOf("Multi-Release" to true))

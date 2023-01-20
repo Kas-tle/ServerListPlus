@@ -16,15 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-
 repositories {
     maven("https://nexus.velocitypowered.com/repository/maven-public/")
 }
 
 dependencies {
     compileOnly("com.velocitypowered:velocity-api:3.0.0")
-    compile("de.themoep:minedown-adventure:1.7.0-SNAPSHOT")
+    implementation("de.themoep:minedown-adventure:1.7.0-SNAPSHOT")
     annotationProcessor("com.velocitypowered:velocity-api:3.0.0")
 }
 
@@ -33,7 +31,7 @@ java {
 }
 
 tasks {
-    getByName<ShadowJar>("shadowJar") {
+    shadowJar {
         dependencies {
             include(dependency("de.themoep:minedown-adventure"))
         }

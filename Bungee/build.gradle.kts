@@ -32,8 +32,8 @@ dependencies {
 
     compileOnly("com.github.lucavinci:bungeeban:v2.7.0") { isTransitive = false }
 
-    compile("net.minecrell.mcstats:statslite-bungee:0.2.3")
-    compile("de.themoep:minedown:1.7.0-SNAPSHOT")
+    implementation("net.minecrell.mcstats:statslite-bungee:0.2.3")
+    implementation("de.themoep:minedown:1.7.0-SNAPSHOT")
 }
 
 bungee {
@@ -44,7 +44,7 @@ bungee {
 }
 
 tasks {
-    getByName<ShadowJar>("shadowJar") {
+    shadowJar {
         dependencies {
             include(dependency("net.minecrell.mcstats:statslite-bungee"))
             include(dependency("de.themoep:minedown"))
