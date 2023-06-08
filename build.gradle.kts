@@ -92,6 +92,14 @@ subprojects {
 
             relocate("org.ocpsoft.prettytime", "net.minecrell.serverlistplus.core.lib.prettytime")
         }
+
+        if (project.name == "Bungee" || project.name == "Bukkit") {
+            // Broken as of 1.20 (https://github.com/SpigotMC/BungeeCord/blame/master/config/pom.xml#L32)
+            dependencies {
+                include(dependency("org.yaml:snakeyaml"))
+            }
+            relocate("org.yaml.snakeyaml", "net.minecrell.serverlistplus.snakeyaml")
+        }
     }
 }
 
